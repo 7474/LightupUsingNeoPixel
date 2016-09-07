@@ -6,6 +6,7 @@
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
+#include <AzureIoTHub.h>
 
 #define LEDCNT 4
 #define PIN 0
@@ -226,8 +227,11 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(LEDCNT, PIN, NEO_GRB + NEO_KHZ800);
 MyFullColorLedStrip* pMyStrip = NULL;
 MyFullColorLedStrip* pMyNextStrip = NULL;
 
-const char *ssid = "MyStrip";
+//const char *ssid = "MyStrip";
+//const char *password = "";
+const char *ssid = "your ap ssid";
 const char *password = "";
+const char *iotHubConnectionString = "your connection string";
 ESP8266WebServer server(80);
 
 void setup() {
@@ -252,15 +256,21 @@ void setup() {
 void loop() {
   //  Serial.println("Start loop.");
   //  Serial.println(++loopCount, DEC);
-  server.handleClient();
-  selectStrip();
+  if (WiFi.status() == WL_CONNECTED) {
+    Azure.connect();
+    server.handleClient();
+    selectStrip();
 
-  pMyStrip->updateOneCycle();
-  //  pMyStrip->updateFrame() ;
-  //  pMyStrip->updateStrip() ;
-  //  pMyStrip->delayFrame() ;
+    pMyStrip->updateOneCycle();
+    //  pMyStrip->updateFrame() ;
+    //  pMyStrip->updateStrip() ;
+    //  pMyStrip->delayFrame() ;
 
-  //  Serial.println("End loop.");
+    //  Serial.println("End loop.");
+  } else {
+    Serial.println("Not connected to the Internet");
+    delay(250);
+  }
 }
 
 void selectStrip() {
@@ -274,10 +284,14 @@ void selectStrip() {
 }
 
 void initializeServer() {
-  WiFi.softAP(ssid, password);
-  IPAddress myIP = WiFi.softAPIP();
-  Serial.print("AP IP address: ");
-  Serial.println(myIP);
+  //  WiFi.softAP(ssid, password);
+  //  IPAddress myIP = WiFi.softAPIP();
+  //  Serial.print("AP IP address: ");
+  //  Serial.println(myIP);
+
+  WiFi.begin(ssid, password);
+  Azure.begin(iotHubConnectionString);
+  Azure.setCallback(azureCallback);
 
   server.on("/", handleRoot);
   server.begin();
@@ -327,5 +341,24 @@ void handleRoot() {
     pMyNextStrip = pAuraStrip;
   }
   server.send(200, "text/html", form);
+}
+
+void azureCallback(String s) {
+  Serial.print("azure Message arrived [");
+  Serial.print(s);
+  Serial.println("] ");
+
+  aJsonClass aJson;
+  aJsonObject* pRoot = aJson.parse((char*)s.c_str());
+  aJsonObject* pBaseColor = aJson.getObjectItem(pRoot, "BaseColor");
+  aJsonObject* pFlashColor = aJson.getObjectItem(pRoot, "FlashColor");
+  aJsonObject* pFrameWait = aJson.getObjectItem(pRoot, "Delay");
+
+  AuraStrip* pAuraStrip = new AuraStrip(&strip);
+  pAuraStrip->set(StartToEnd, MyColor(pBaseColor->valuestring), MyColor(pFlashColor->valuestring));
+  pAuraStrip->setFrameWait(pFrameWait->valueint);
+  pMyNextStrip = pAuraStrip;
+
+  aJson.deleteItem(pRoot);
 }
 
